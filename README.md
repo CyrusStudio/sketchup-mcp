@@ -69,18 +69,43 @@ On macOS the folder is `~/Library/Application Support/SketchUp <year>/SketchUp/P
 
 1. In SketchUp: **Extensions > MCP Server > Start Server**. *Server Status* shows
    the address and the number of connected clients.
-2. Point your MCP client at the server:
+2. Point your MCP client at the console script inside this checkout's venv. That
+   is one process with no resolver step, so the server starts instantly.
+
+Claude Code (available in every project):
+
+```bash
+claude mcp add sketchup -s user -e SKETCHUP_MCP_TIMEOUT=60 -- \
+  "C:\path\to\sketchup-mcp\.venv\Scripts\sketchup-mcp.exe"
+claude mcp list          # expect: sketchup: ... - Connected
+```
+
+Codex:
+
+```bash
+codex mcp add sketchup --env SKETCHUP_MCP_TIMEOUT=60 -- \
+  "C:\path\to\sketchup-mcp\.venv\Scripts\sketchup-mcp.exe"
+codex mcp list
+```
+
+Any other client, as JSON (on macOS/Linux the path is `.venv/bin/sketchup-mcp`):
 
 ```json
 {
   "mcpServers": {
     "sketchup": {
-      "command": "uv",
-      "args": ["run", "--directory", "C:/path/to/sketchup-mcp", "sketchup-mcp"]
+      "type": "stdio",
+      "command": "C:/path/to/sketchup-mcp/.venv/Scripts/sketchup-mcp.exe",
+      "args": [],
+      "env": { "SKETCHUP_MCP_TIMEOUT": "60" }
     }
   }
 }
 ```
+
+Define the server in one scope only. Claude Code reports a "Conflicting scopes"
+diagnostic if the same name exists in both user and project scope with different
+command strings.
 
 The MCP server starts whether or not SketchUp is up; it connects on first use and
 reconnects by itself if SketchUp restarts.
