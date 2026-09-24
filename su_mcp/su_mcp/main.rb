@@ -8,12 +8,24 @@ SKETCHUP_CONSOLE.show rescue nil
 
 module SU_MCP
   class Server
-    def initialize
-      @port = 9876
+    # One JSON object per line, "\n" terminated, in both directions.
+    FRAME_DELIMITER = "\n".freeze
+    MAX_FRAME_BYTES = 16 * 1024 * 1024
+    MAX_CLIENTS = 16
+
+    attr_reader :port, :host
+
+    def initialize(host: nil, port: nil)
+      @host = host || ENV["SU_MCP_HOST"] || "127.0.0.1"
+      @port = (port || ENV["SU_MCP_PORT"] || 9876).to_i
       @server = nil
+      @clients = []
       @running = false
       @timer_id = nil
-      
+      @in_tick = false
+      @log_file = ENV["SU_MCP_LOG_FILE"]
+      @log_file = nil if @log_file.to_s.strip.empty?
+
       # Try multiple ways to show console
       begin
         SKETCHUP_CONSOLE.show
@@ -26,122 +38,239 @@ module SU_MCP
       end
     end
 
+    def running?
+      @running
+    end
+
+    def client_count
+      @clients.length
+    end
+
     def log(msg)
       begin
         SKETCHUP_CONSOLE.write("MCP: #{msg}\n")
       rescue
         puts "MCP: #{msg}"
       end
-      STDOUT.flush
+      begin
+        STDOUT.flush
+      rescue StandardError
+        nil
+      end
+      # The Ruby Console cannot be read from outside SketchUp, so mirror the log
+      # to a file when asked. This is how a scripted launch gets diagnostics.
+      return if @log_file.nil?
+      begin
+        File.open(@log_file, "a") { |f| f.write("#{Time.now.strftime('%H:%M:%S.%L')} MCP: #{msg}\n") }
+      rescue StandardError
+        @log_file = nil
+      end
     end
 
     def start
-      return if @running
-      
+      if @running
+        log "Server already running on #{@host}:#{@port}"
+        return true
+      end
+
       begin
-        log "Starting server on localhost:#{@port}..."
-        
-        @server = TCPServer.new('127.0.0.1', @port)
-        log "Server created on port #{@port}"
-        
+        log "Starting server on #{@host}:#{@port}..."
+        @server = TCPServer.new(@host, @port)
+        @clients = []
         @running = true
-        
-        @timer_id = UI.start_timer(0.1, true) {
-          begin
-            if @running
-              # Check for connection
-              ready = IO.select([@server], nil, nil, 0)
-              if ready
-                log "Connection waiting..."
-                client = @server.accept_nonblock
-                log "Client accepted"
-                
-                data = client.gets
-                log "Raw data: #{data.inspect}"
-                
-                if data
-                  begin
-                    # Parse the raw JSON first to check format
-                    raw_request = JSON.parse(data)
-                    log "Raw parsed request: #{raw_request.inspect}"
-                    
-                    # Extract the original request ID if it exists in the raw data
-                    original_id = nil
-                    if data =~ /"id":\s*(\d+)/
-                      original_id = $1.to_i
-                      log "Found original request ID: #{original_id}"
-                    end
-                    
-                    # Use the raw request directly without transforming it
-                    # Just ensure the ID is preserved if it exists
-                    request = raw_request
-                    if !request["id"] && original_id
-                      request["id"] = original_id
-                      log "Added missing ID: #{original_id}"
-                    end
-                    
-                    log "Processed request: #{request.inspect}"
-                    response = handle_jsonrpc_request(request)
-                    response_json = response.to_json + "\n"
-                    
-                    log "Sending response: #{response_json.strip}"
-                    client.write(response_json)
-                    client.flush
-                    log "Response sent"
-                  rescue JSON::ParserError => e
-                    log "JSON parse error: #{e.message}"
-                    error_response = {
-                      jsonrpc: "2.0",
-                      error: { code: -32700, message: "Parse error" },
-                      id: original_id
-                    }.to_json + "\n"
-                    client.write(error_response)
-                    client.flush
-                  rescue StandardError => e
-                    log "Request error: #{e.message}"
-                    error_response = {
-                      jsonrpc: "2.0",
-                      error: { code: -32603, message: e.message },
-                      id: request ? request["id"] : original_id
-                    }.to_json + "\n"
-                    client.write(error_response)
-                    client.flush
-                  end
-                end
-                
-                client.close
-                log "Client closed"
-              end
-            end
-          rescue IO::WaitReadable
-            # Normal for accept_nonblock
-          rescue StandardError => e
-            log "Timer error: #{e.message}"
-            log e.backtrace.join("\n")
-          end
-        }
-        
-        log "Server started and listening"
-        
+
+        # The model may only be touched from SketchUp's main thread, so the
+        # accept/read loop runs on the UI timer. Every socket operation below is
+        # non-blocking: a client that sends half a line must never freeze the
+        # application, which is what the previous blocking client.gets did.
+        @timer_id = UI.start_timer(0.1, true) { tick }
+
+        log "Server started and listening on #{@host}:#{@port}"
+        true
       rescue StandardError => e
-        log "Error: #{e.message}"
+        log "Error starting server: #{e.class}: #{e.message}"
         log e.backtrace.join("\n")
         stop
+        false
       end
     end
 
     def stop
       log "Stopping server..."
       @running = false
-      
+
       if @timer_id
-        UI.stop_timer(@timer_id)
+        begin
+          UI.stop_timer(@timer_id)
+        rescue StandardError => e
+          log "Error stopping timer: #{e.message}"
+        end
         @timer_id = nil
       end
-      
-      @server.close if @server
+
+      (@clients || []).each { |client| close_socket(client[:io]) }
+      @clients = []
+
+      close_socket(@server)
       @server = nil
       log "Server stopped"
+    end
+
+    # Drives one iteration of the accept/read loop. Public so a test harness can
+    # pump it without a UI timer.
+    def tick
+      return unless @running
+      # Long Ruby calls made from here (Model#save, exporters, progress dialogs)
+      # pump the Windows message loop, which fires this very timer again. Without
+      # this guard a second save starts while the first is still renaming its
+      # temp file, which is how a "successful" save ends up as a zero-byte .skp
+      # next to a leftover <name>-0.skp.
+      return if @in_tick
+      @in_tick = true
+      begin
+        accept_pending
+        service_clients
+      ensure
+        @in_tick = false
+      end
+    rescue StandardError => e
+      @in_tick = false
+      log "Tick error: #{e.class}: #{e.message}"
+      log e.backtrace.join("\n")
+    end
+
+    private
+
+    def close_socket(io)
+      return if io.nil?
+      begin
+        io.close unless io.closed?
+      rescue StandardError => e
+        log "Error closing socket: #{e.message}"
+      end
+    end
+
+    def accept_pending
+      return if @server.nil?
+      loop do
+        break if @clients.length >= MAX_CLIENTS
+        client = begin
+          @server.accept_nonblock
+        rescue IO::WaitReadable, Errno::EAGAIN, Errno::EWOULDBLOCK, Errno::ECONNABORTED, Errno::EINTR
+          nil
+        rescue StandardError => e
+          log "Accept error: #{e.class}: #{e.message}"
+          nil
+        end
+        break if client.nil?
+
+        begin
+          client.sync = true
+        rescue StandardError
+          # Not every IO supports it; harmless.
+        end
+        @clients << { :io => client, :buf => "".b }
+        log "Client accepted (#{@clients.length} open)"
+      end
+    end
+
+    def service_clients
+      @clients.dup.each do |client|
+        io = client[:io]
+        closed = false
+
+        loop do
+          chunk = begin
+            io.read_nonblock(65_536)
+          rescue IO::WaitReadable, Errno::EAGAIN, Errno::EWOULDBLOCK, Errno::EINTR
+            nil
+          rescue EOFError
+            closed = true
+            nil
+          rescue IOError, SystemCallError => e
+            log "Read error: #{e.class}: #{e.message}"
+            closed = true
+            nil
+          end
+          break if chunk.nil?
+          client[:buf] << chunk
+        end
+
+        # Always dispatch whatever complete frames arrived, even when the peer
+        # closed straight after writing them.
+        process_buffer(client)
+
+        if closed
+          drop_client(client, "peer closed") if @clients.include?(client)
+        elsif client[:buf].bytesize > MAX_FRAME_BYTES
+          log "Dropping client: #{client[:buf].bytesize} buffered bytes with no frame delimiter"
+          drop_client(client, "frame too large")
+        end
+      end
+    end
+
+    def drop_client(client, reason)
+      close_socket(client[:io])
+      @clients.delete(client)
+      log "Client closed (#{reason}); #{@clients.length} open"
+    end
+
+    def process_buffer(client)
+      buf = client[:buf]
+      while (index = buf.index(FRAME_DELIMITER))
+        frame = buf.slice!(0, index + 1).chomp.dup.force_encoding(Encoding::UTF_8)
+        next if frame.strip.empty?
+        handle_frame(client, frame)
+        # handle_frame may have dropped the client on a write failure.
+        return unless @clients.include?(client)
+      end
+    end
+
+    def handle_frame(client, frame)
+      log "Raw frame: #{frame.inspect}"
+      request = nil
+      response =
+        begin
+          request = JSON.parse(frame)
+          raise "JSON-RPC request must be a JSON object" unless request.is_a?(Hash)
+          handle_jsonrpc_request(request)
+        rescue JSON::ParserError => e
+          log "JSON parse error: #{e.message}"
+          {
+            :jsonrpc => "2.0",
+            :error => { :code => -32700, :message => "Parse error: #{e.message}", :data => { :success => false } },
+            :id => extract_id(frame)
+          }
+        rescue StandardError => e
+          log "Request error: #{e.class}: #{e.message}"
+          {
+            :jsonrpc => "2.0",
+            :error => { :code => -32603, :message => e.message, :data => { :success => false } },
+            :id => request.is_a?(Hash) ? request["id"] : extract_id(frame)
+          }
+        end
+
+      write_response(client, response)
+    end
+
+    # Best-effort id recovery so a malformed request still gets a correlated
+    # error instead of an id-less one the client has to guess at.
+    def extract_id(frame)
+      match = frame.match(/"id"\s*:\s*(?:"([^"]*)"|(-?\d+))/)
+      return nil if match.nil?
+      match[1] || match[2].to_i
+    end
+
+    def write_response(client, response)
+      payload = response.to_json + FRAME_DELIMITER
+      log "Sending response (#{payload.bytesize} bytes): #{payload.strip}"
+      begin
+        client[:io].write(payload)
+        client[:io].flush
+      rescue IOError, SystemCallError => e
+        log "Write error: #{e.class}: #{e.message}"
+        drop_client(client, "write failed")
+      end
     end
 
     private
@@ -168,6 +297,21 @@ module SU_MCP
       case request["method"]
       when "tools/call"
         handle_tool_call(request)
+      when "ping"
+        # Cheap liveness check. The Python client probes an idle reused socket
+        # with this before writing a modelling command, so that a dead peer
+        # fails *before* the command goes out and never has to be re-sent.
+        {
+          jsonrpc: request["jsonrpc"] || "2.0",
+          result: {
+            ok: true,
+            success: true,
+            server: "su_mcp",
+            sketchup: (begin; Sketchup.version; rescue StandardError; nil; end),
+            clients: @clients.length
+          },
+          id: request["id"]
+        }
       when "resources/list"
         {
           jsonrpc: request["jsonrpc"] || "2.0",
@@ -1848,13 +1992,29 @@ module SU_MCP
     end
   end
 
+  class << self
+    # Lets a startup script reach the server without instance_variable_get.
+    attr_reader :server
+  end
+
   unless file_loaded?(__FILE__)
     @server = Server.new
-    
+
     menu = UI.menu("Plugins").add_submenu("MCP Server")
     menu.add_item("Start Server") { @server.start }
     menu.add_item("Stop Server") { @server.stop }
-    
+    menu.add_item("Server Status") do
+      UI.messagebox(
+        "MCP server #{@server.running? ? 'running' : 'stopped'} on " \
+        "#{@server.host}:#{@server.port}, #{@server.client_count} client(s)"
+      )
+    end
+
+    # Opt-in autostart, so a scripted launch does not need the menu.
+    if ENV["SU_MCP_AUTOSTART"].to_s =~ /\A(1|true|yes|on)\z/i
+      UI.start_timer(0, false) { @server.start }
+    end
+
     file_loaded(__FILE__)
   end
 end 

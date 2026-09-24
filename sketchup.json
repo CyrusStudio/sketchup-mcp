@@ -4,131 +4,373 @@
   "package": "sketchup-mcp",
   "module": "sketchup_mcp.server",
   "object": "mcp",
+  "generated_by": "tools/gen_manifest.py",
   "tools": [
     {
       "name": "create_component",
       "description": "Create a new component in Sketchup",
       "parameters": {
-        "type": "object",
         "properties": {
           "type": {
-            "type": "string",
-            "description": "Type of component to create",
-            "default": "cube"
+            "default": "cube",
+            "title": "Type",
+            "type": "string"
           },
           "position": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            },
-            "description": "Position [x,y,z] of the component",
-            "default": [0,0,0]
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Position"
           },
           "dimensions": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            },
-            "description": "Dimensions [width,height,depth] of the component",
-            "default": [1,1,1]
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dimensions"
           }
-        }
+        },
+        "title": "create_componentArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_dovetail",
+      "description": "Create a dovetail joint between two components",
+      "parameters": {
+        "properties": {
+          "tail_id": {
+            "title": "Tail Id",
+            "type": "string"
+          },
+          "pin_id": {
+            "title": "Pin Id",
+            "type": "string"
+          },
+          "width": {
+            "default": 1.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "height": {
+            "default": 1.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "depth": {
+            "default": 1.0,
+            "title": "Depth",
+            "type": "number"
+          },
+          "angle": {
+            "default": 15.0,
+            "title": "Angle",
+            "type": "number"
+          },
+          "num_tails": {
+            "default": 3,
+            "title": "Num Tails",
+            "type": "integer"
+          },
+          "offset_x": {
+            "default": 0.0,
+            "title": "Offset X",
+            "type": "number"
+          },
+          "offset_y": {
+            "default": 0.0,
+            "title": "Offset Y",
+            "type": "number"
+          },
+          "offset_z": {
+            "default": 0.0,
+            "title": "Offset Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "tail_id",
+          "pin_id"
+        ],
+        "title": "create_dovetailArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_finger_joint",
+      "description": "Create a finger joint (box joint) between two components",
+      "parameters": {
+        "properties": {
+          "board1_id": {
+            "title": "Board1 Id",
+            "type": "string"
+          },
+          "board2_id": {
+            "title": "Board2 Id",
+            "type": "string"
+          },
+          "width": {
+            "default": 1.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "height": {
+            "default": 1.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "depth": {
+            "default": 1.0,
+            "title": "Depth",
+            "type": "number"
+          },
+          "num_fingers": {
+            "default": 5,
+            "title": "Num Fingers",
+            "type": "integer"
+          },
+          "offset_x": {
+            "default": 0.0,
+            "title": "Offset X",
+            "type": "number"
+          },
+          "offset_y": {
+            "default": 0.0,
+            "title": "Offset Y",
+            "type": "number"
+          },
+          "offset_z": {
+            "default": 0.0,
+            "title": "Offset Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "board1_id",
+          "board2_id"
+        ],
+        "title": "create_finger_jointArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "create_mortise_tenon",
+      "description": "Create a mortise and tenon joint between two components",
+      "parameters": {
+        "properties": {
+          "mortise_id": {
+            "title": "Mortise Id",
+            "type": "string"
+          },
+          "tenon_id": {
+            "title": "Tenon Id",
+            "type": "string"
+          },
+          "width": {
+            "default": 1.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "height": {
+            "default": 1.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "depth": {
+            "default": 1.0,
+            "title": "Depth",
+            "type": "number"
+          },
+          "offset_x": {
+            "default": 0.0,
+            "title": "Offset X",
+            "type": "number"
+          },
+          "offset_y": {
+            "default": 0.0,
+            "title": "Offset Y",
+            "type": "number"
+          },
+          "offset_z": {
+            "default": 0.0,
+            "title": "Offset Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "mortise_id",
+          "tenon_id"
+        ],
+        "title": "create_mortise_tenonArguments",
+        "type": "object"
       }
     },
     {
       "name": "delete_component",
       "description": "Delete a component by ID",
       "parameters": {
-        "type": "object",
         "properties": {
           "id": {
-            "type": "string",
-            "description": "ID of the component to delete"
+            "title": "Id",
+            "type": "string"
           }
         },
-        "required": ["id"]
+        "required": [
+          "id"
+        ],
+        "title": "delete_componentArguments",
+        "type": "object"
       }
     },
     {
-      "name": "transform_component",
-      "description": "Transform a component's position, rotation, or scale",
+      "name": "eval_ruby",
+      "description": "Evaluate arbitrary Ruby code in Sketchup",
       "parameters": {
-        "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "ID of the component to transform"
-          },
-          "position": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            },
-            "description": "New position [x,y,z]"
-          },
-          "rotation": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            },
-            "description": "New rotation [x,y,z] in degrees"
-          },
-          "scale": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            },
-            "description": "New scale [x,y,z]"
+          "code": {
+            "title": "Code",
+            "type": "string"
           }
         },
-        "required": ["id"]
-      }
-    },
-    {
-      "name": "get_selection",
-      "description": "Get currently selected components",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "set_material",
-      "description": "Set material for a component",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "ID of the component"
-          },
-          "material": {
-            "type": "string",
-            "description": "Name of the material to apply"
-          }
-        },
-        "required": ["id", "material"]
+        "required": [
+          "code"
+        ],
+        "title": "eval_rubyArguments",
+        "type": "object"
       }
     },
     {
       "name": "export_scene",
       "description": "Export the current scene",
       "parameters": {
-        "type": "object",
         "properties": {
           "format": {
-            "type": "string",
-            "description": "Export format (e.g. skp, obj, etc)",
-            "default": "skp"
+            "default": "skp",
+            "title": "Format",
+            "type": "string"
           }
-        }
+        },
+        "title": "export_sceneArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_selection",
+      "description": "Get currently selected components",
+      "parameters": {
+        "properties": {},
+        "title": "get_selectionArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "set_material",
+      "description": "Set material for a component",
+      "parameters": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "material": {
+            "title": "Material",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "material"
+        ],
+        "title": "set_materialArguments",
+        "type": "object"
+      }
+    },
+    {
+      "name": "transform_component",
+      "description": "Transform a component's position, rotation, or scale",
+      "parameters": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Position"
+          },
+          "rotation": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rotation"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scale"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "transform_componentArguments",
+        "type": "object"
       }
     }
   ],
   "mcpServers": {
     "sketchup": {
       "command": "uvx",
-      "args": ["sketchup_mcp"]
+      "args": [
+        "sketchup-mcp"
+      ]
     }
   }
-} 
+}

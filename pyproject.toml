@@ -1,25 +1,29 @@
 [project]
 name = "sketchup-mcp"
-version = "0.1.17"
+version = "0.2.0"
 description = "Sketchup integration through Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
-authors = [
-    {name = "Your Name", email = "your.email@example.com"}
-]
+license = { text = "MIT" }
+maintainers = [{ name = "CyrusStudio" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = [
-    "mcp[cli]>=1.3.0"
-]
+# Upper bound is deliberate. mcp 2.x removed mcp.server.fastmcp and renamed
+# FastMCP to MCPServer; sketchup_mcp._compat handles both, but only the 1.x path
+# is verified against a live SketchUp, so resolution stays on 1.x by default.
+# Raise the floor/ceiling only together with a test run against the new SDK.
+dependencies = ["mcp[cli]>=1.9.0,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/sketchup-mcp"
-Issues = "https://github.com/yourusername/sketchup-mcp/issues"
+Homepage = "https://github.com/CyrusStudio/sketchup-mcp"
+Issues = "https://github.com/CyrusStudio/sketchup-mcp/issues"
+Upstream = "https://github.com/mhyrr/sketchup-mcp"
 
 [project.scripts]
 sketchup-mcp = "sketchup_mcp.server:main"
@@ -31,5 +35,9 @@ sketchup = "sketchup_mcp.server:mcp"
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-package-dir = {"" = "src"} 
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
